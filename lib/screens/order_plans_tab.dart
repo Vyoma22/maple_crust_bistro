@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import '../database/database_helper.dart';
 import '../models/order_plan.dart';
 import '../theme/app_theme.dart';
+import 'edit_order_plan_dialog.dart';
 
-/// Screen for querying order plans by a specific date and viewing
-/// all saved order plans ordered by date descending.
+/// Screen for querying order plans by a specific date, viewing all saved
+/// order plans ordered by date descending, and updating or deleting plans.
 class OrderPlansTab extends StatefulWidget {
   const OrderPlansTab({super.key});
 
@@ -33,6 +34,17 @@ class _OrderPlansTabState extends State<OrderPlansTab> {
     setState(() {
       _allPlans = plans;
       _isLoading = false;
+    });
+  }
+
+  /// Re-runs the active date query if one is currently displayed.
+  Future<void> _refreshActiveQuery() async {
+    if (!_hasSearched || _queryDate == null) return;
+    final matches = await DatabaseHelper.instance
+        .getOrderPlansByDate(_formatDate(_queryDate!));
+    if (!mounted) return;
+    setState(() {
+      _queryResults = matches;
     });
   }
 
@@ -75,7 +87,76 @@ class _OrderPlansTabState extends State<OrderPlansTab> {
     });
   }
 
-  /// Builds a reusable card widget displaying a single saved OrderPlan.
+  /// Opens the dialog to edit an existing OrderPlan and refreshes lists upon save.
+  Future<void> _editOrderPlan(OrderPlan plan) async {
+    final bool? updated = await showDialog<bool>(
+      context: context,
+      builder: (_) => EditOrderPlanDialog(plan: plan),
+    );
+
+    if (updated == true) {
+      await _loadAllOrderPlans();
+      await _refreshActiveQuery();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text('Order plan updated!'),
+            backgroundColor: Colors.green.shade800,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    }
+  }
+
+  /// Confirms and deletes an OrderPlan from SQLite.
+  Future<void> _confirmDeleteOrderPlan(OrderPlan plan) async {
+    if (plan.id == null) return;
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Order Plan'),
+          content: Text(
+            'Delete the order plan for ${plan.date} (\$${plan.totalCost.toStringAsFixed(2)})?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.mapleRed,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      await DatabaseHelper.instance.deleteOrderPlan(plan.id!);
+      await _loadAllOrderPlans();
+      await _refreshActiveQuery();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Deleted order plan for ${plan.date}.'),
+            backgroundColor: AppTheme.mapleRed,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    }
+  }
+
+  /// Builds a reusable card widget displaying a saved OrderPlan with Edit/Delete actions.
   Widget _buildOrderPlanCard(OrderPlan plan, {bool isQueryMatch = false}) {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -157,6 +238,30 @@ class _OrderPlansTabState extends State<OrderPlansTab> {
                   ],
                 ),
               ),
+            ),
+            const Divider(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: () => _editOrderPlan(plan),
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text('Edit'),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: () => _confirmDeleteOrderPlan(plan),
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    size: 18,
+                    color: AppTheme.mapleRed,
+                  ),
+                  label: const Text(
+                    'Delete',
+                    style: TextStyle(color: AppTheme.mapleRed),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

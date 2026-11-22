@@ -3,7 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import '../models/food_item.dart';
 import '../models/order_plan.dart';
 
-/// Singleton helper managing local SQLite database creation, seeding, and queries.
+/// Singleton helper managing local SQLite database creation, seeding, and CRUD queries.
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._internal();
   static Database? _database;
@@ -92,6 +92,8 @@ class DatabaseHelper {
     await batch.commit(noResult: true);
   }
 
+  // ==================== FOOD ITEM CRUD OPERATIONS ====================
+
   /// Retrieves all food items from the database ordered alphabetically by name.
   Future<List<FoodItem>> getAllFoodItems() async {
     final db = await database;
@@ -101,6 +103,35 @@ class DatabaseHelper {
     );
     return maps.map((map) => FoodItem.fromMap(map)).toList();
   }
+
+  /// Inserts a new FoodItem into the database and returns its generated ID.
+  Future<int> insertFoodItem(FoodItem item) async {
+    final db = await database;
+    return await db.insert(tableFoodItems, item.toMap());
+  }
+
+  /// Updates an existing FoodItem's name and cost in the database.
+  Future<int> updateFoodItem(FoodItem item) async {
+    final db = await database;
+    return await db.update(
+      tableFoodItems,
+      item.toMap(),
+      where: 'id = ?',
+      whereArgs: [item.id],
+    );
+  }
+
+  /// Deletes a FoodItem from the database by its ID.
+  Future<int> deleteFoodItem(int id) async {
+    final db = await database;
+    return await db.delete(
+      tableFoodItems,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // ==================== ORDER PLAN CRUD OPERATIONS ====================
 
   /// Inserts a new saved OrderPlan into SQLite and returns its generated row ID.
   Future<int> insertOrderPlan(OrderPlan plan) async {
@@ -128,5 +159,26 @@ class DatabaseHelper {
       orderBy: 'date DESC, id DESC',
     );
     return maps.map((map) => OrderPlan.fromMap(map)).toList();
+  }
+
+  /// Updates an existing OrderPlan's date, target cost, total cost, and items.
+  Future<int> updateOrderPlan(OrderPlan plan) async {
+    final db = await database;
+    return await db.update(
+      tableOrderPlans,
+      plan.toMap(),
+      where: 'id = ?',
+      whereArgs: [plan.id],
+    );
+  }
+
+  /// Deletes an OrderPlan from the database by its ID.
+  Future<int> deleteOrderPlan(int id) async {
+    final db = await database;
+    return await db.delete(
+      tableOrderPlans,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 }

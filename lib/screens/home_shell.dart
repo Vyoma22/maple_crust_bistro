@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import 'manage_menu_tab.dart';
 import 'order_builder_tab.dart';
 import 'order_plans_tab.dart';
 
@@ -13,8 +14,8 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _selectedIndex = 0;
-  // Incremented when switching to Order Plans so newly saved plans load immediately
   int _orderPlansRefreshKey = 0;
+  int _menuVersion = 0;
 
   /// Updates the active tab index and refreshes Order Plans when opened.
   void _onDestinationSelected(int index) {
@@ -23,6 +24,13 @@ class _HomeShellState extends State<HomeShell> {
       if (index == 1) {
         _orderPlansRefreshKey++;
       }
+    });
+  }
+
+  /// Increments menuVersion so OrderBuilderTab reloads updated menu items.
+  void _handleMenuChanged() {
+    setState(() {
+      _menuVersion++;
     });
   }
 
@@ -96,17 +104,9 @@ class _HomeShellState extends State<HomeShell> {
             child: IndexedStack(
               index: _selectedIndex,
               children: [
-                // Kept alive in memory so target cost, date, and selections persist
-                const OrderBuilderTab(),
-                // Rebuilds with fresh SQLite data whenever opened
+                OrderBuilderTab(menuVersion: _menuVersion),
                 OrderPlansTab(key: ValueKey(_orderPlansRefreshKey)),
-                const Center(
-                  child: Text(
-                    'Manage Menu Items',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 16),
-                  ),
-                ),
+                ManageMenuTab(onMenuChanged: _handleMenuChanged),
               ],
             ),
           ),

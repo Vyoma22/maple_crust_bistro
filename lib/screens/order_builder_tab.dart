@@ -8,7 +8,9 @@ import '../theme/app_theme.dart';
 /// Interactive screen allowing users to set a daily budget, pick a date,
 /// select menu items within budget, and save the order plan to SQLite.
 class OrderBuilderTab extends StatefulWidget {
-  const OrderBuilderTab({super.key});
+  final int menuVersion;
+
+  const OrderBuilderTab({super.key, this.menuVersion = 0});
 
   @override
   State<OrderBuilderTab> createState() => _OrderBuilderTabState();
@@ -37,17 +39,27 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
   }
 
   @override
+  void didUpdateWidget(covariant OrderBuilderTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.menuVersion != widget.menuVersion) {
+      _loadMenuItems();
+    }
+  }
+
+  @override
   void dispose() {
     _targetCostController.dispose();
     super.dispose();
   }
 
-  /// Loads all menu items from SQLite.
+  /// Loads all menu items from SQLite and cleans up deleted item IDs if needed.
   Future<void> _loadMenuItems() async {
     final items = await DatabaseHelper.instance.getAllFoodItems();
     if (!mounted) return;
+    final validIds = items.map((e) => e.id).whereType<int>().toSet();
     setState(() {
       _menuItems = items;
+      _selectedQuantities.removeWhere((id, _) => !validIds.contains(id));
       _isLoading = false;
     });
   }
@@ -232,7 +244,8 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
     final double total = _currentTotalCost;
 
     if (_activeTargetCost <= 0) {
-      _showBudgetExceededAlert('Set a valid target cost greater than \$0.00 before saving.');
+      _showBudgetExceededAlert(
+          'Set a valid target cost greater than \$0.00 before saving.');
       return;
     }
 
@@ -299,7 +312,6 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Target Cost Input + Validation
                 Expanded(
                   flex: 6,
                   child: TextField(
@@ -321,7 +333,6 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // 'Set' Button (Enabled only when valid > 0 and changed)
                 SizedBox(
                   height: 48,
                   child: ElevatedButton(
@@ -336,7 +347,6 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // Date Picker Button
                 Expanded(
                   flex: 5,
                   child: SizedBox(
@@ -362,7 +372,6 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
               ],
             ),
             const SizedBox(height: 12),
-            // Running Cost Summary Row
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
@@ -538,7 +547,6 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
             },
           ),
         ),
-        // Bottom Save Order Plan Bar
         Container(
           width: double.infinity,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
