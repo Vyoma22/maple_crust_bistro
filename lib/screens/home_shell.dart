@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import '../database/database_helper.dart';
-import '../models/food_item.dart';
 import '../theme/app_theme.dart';
+import 'order_builder_tab.dart';
 
 /// Main navigation shell displaying the restaurant branding and tab views.
 class HomeShell extends StatefulWidget {
@@ -13,25 +12,6 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _selectedIndex = 0;
-  List<FoodItem> _foodItems = [];
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadFoodItems();
-  }
-
-  /// Fetches all seeded/stored food items from the local SQLite database.
-  Future<void> _loadFoodItems() async {
-    final List<FoodItem> items =
-    await DatabaseHelper.instance.getAllFoodItems();
-    if (!mounted) return;
-    setState(() {
-      _foodItems = items;
-      _isLoading = false;
-    });
-  }
 
   /// Updates the active tab index when the user taps a navigation destination.
   void _onDestinationSelected(int index) {
@@ -44,7 +24,7 @@ class _HomeShellState extends State<HomeShell> {
   Widget _buildBrandHeader() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppTheme.softSand,
         border: Border(
@@ -57,7 +37,7 @@ class _HomeShellState extends State<HomeShell> {
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(9),
             decoration: BoxDecoration(
               color: AppTheme.mapleRed,
               borderRadius: BorderRadius.circular(12),
@@ -65,10 +45,10 @@ class _HomeShellState extends State<HomeShell> {
             child: const Icon(
               Icons.bakery_dining,
               color: Colors.white,
-              size: 32,
+              size: 28,
             ),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -76,7 +56,7 @@ class _HomeShellState extends State<HomeShell> {
                 Text(
                   'Maple Crust Bistro',
                   style: TextStyle(
-                    fontSize: 20,
+                    fontSize: 19,
                     fontWeight: FontWeight.bold,
                     color: AppTheme.espressoBrown,
                   ),
@@ -85,7 +65,7 @@ class _HomeShellState extends State<HomeShell> {
                 Text(
                   'Fresh Artisanal Sandwiches, Soups & Coffee',
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: 12.5,
                     color: AppTheme.espressoBrown,
                   ),
                 ),
@@ -97,82 +77,15 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
-  /// Displays the seeded menu items and costs loaded from SQLite.
-  Widget _buildMenuPreviewTab() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_foodItems.isEmpty) {
-      return const Center(
-        child: Text('No menu items found in the database.'),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-          child: Text(
-            'Bistro Menu (${_foodItems.length} Seeded Items)',
-            style: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-              color: AppTheme.espressoBrown,
-            ),
-          ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            itemCount: _foodItems.length,
-            itemBuilder: (context, index) {
-              final FoodItem item = _foodItems[index];
-              return Card(
-                margin: const EdgeInsets.symmetric(vertical: 5),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: AppTheme.softSand,
-                    child: const Icon(
-                      Icons.restaurant,
-                      color: AppTheme.mapleRed,
-                      size: 20,
-                    ),
-                  ),
-                  title: Text(
-                    item.name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.espressoBrown,
-                    ),
-                  ),
-                  trailing: Text(
-                    '\$${item.cost.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.mapleRed,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
   /// Returns the view for the currently selected bottom navigation tab.
   Widget _buildCurrentTab() {
     switch (_selectedIndex) {
       case 0:
-        return _buildMenuPreviewTab();
+        return const OrderBuilderTab();
       case 1:
         return const Center(
           child: Text(
-            'Order Plans & Date Search)',
+            'Order Plans & Date Search',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 16),
           ),
