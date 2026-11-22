@@ -1,6 +1,7 @@
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/food_item.dart';
+import '../models/order_plan.dart';
 
 /// Singleton helper managing local SQLite database creation, seeding, and queries.
 class DatabaseHelper {
@@ -99,5 +100,33 @@ class DatabaseHelper {
       orderBy: 'name ASC',
     );
     return maps.map((map) => FoodItem.fromMap(map)).toList();
+  }
+
+  /// Inserts a new saved OrderPlan into SQLite and returns its generated row ID.
+  Future<int> insertOrderPlan(OrderPlan plan) async {
+    final db = await database;
+    return await db.insert(tableOrderPlans, plan.toMap());
+  }
+
+  /// Queries all order plans matching a specific YYYY-MM-DD date string.
+  Future<List<OrderPlan>> getOrderPlansByDate(String date) async {
+    final db = await database;
+    final maps = await db.query(
+      tableOrderPlans,
+      where: 'date = ?',
+      whereArgs: [date],
+      orderBy: 'id DESC',
+    );
+    return maps.map((map) => OrderPlan.fromMap(map)).toList();
+  }
+
+  /// Retrieves all saved order plans ordered by date descending (newest first).
+  Future<List<OrderPlan>> getAllOrderPlansDescending() async {
+    final db = await database;
+    final maps = await db.query(
+      tableOrderPlans,
+      orderBy: 'date DESC, id DESC',
+    );
+    return maps.map((map) => OrderPlan.fromMap(map)).toList();
   }
 }

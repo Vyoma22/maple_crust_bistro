@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'order_builder_tab.dart';
+import 'order_plans_tab.dart';
 
 /// Main navigation shell displaying the restaurant branding and tab views.
 class HomeShell extends StatefulWidget {
@@ -12,11 +13,16 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _selectedIndex = 0;
+  // Incremented when switching to Order Plans so newly saved plans load immediately
+  int _orderPlansRefreshKey = 0;
 
-  /// Updates the active tab index when the user taps a navigation destination.
+  /// Updates the active tab index and refreshes Order Plans when opened.
   void _onDestinationSelected(int index) {
     setState(() {
       _selectedIndex = index;
+      if (index == 1) {
+        _orderPlansRefreshKey++;
+      }
     });
   }
 
@@ -77,31 +83,6 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
-  /// Returns the view for the currently selected bottom navigation tab.
-  Widget _buildCurrentTab() {
-    switch (_selectedIndex) {
-      case 0:
-        return const OrderBuilderTab();
-      case 1:
-        return const Center(
-          child: Text(
-            'Order Plans & Date Search',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 16),
-          ),
-        );
-      case 2:
-      default:
-        return const Center(
-          child: Text(
-            'Manage Menu Items',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 16),
-          ),
-        );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -112,7 +93,22 @@ class _HomeShellState extends State<HomeShell> {
         children: [
           _buildBrandHeader(),
           Expanded(
-            child: _buildCurrentTab(),
+            child: IndexedStack(
+              index: _selectedIndex,
+              children: [
+                // Kept alive in memory so target cost, date, and selections persist
+                const OrderBuilderTab(),
+                // Rebuilds with fresh SQLite data whenever opened
+                OrderPlansTab(key: ValueKey(_orderPlansRefreshKey)),
+                const Center(
+                  child: Text(
+                    'Manage Menu Items',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

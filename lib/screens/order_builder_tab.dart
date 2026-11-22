@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../database/database_helper.dart';
 import '../models/food_item.dart';
+import '../models/order_plan.dart';
 import '../theme/app_theme.dart';
 
 /// Interactive screen allowing users to set a daily budget, pick a date,
-/// and select menu items without exceeding their target cost.
+/// select menu items within budget, and save the order plan to SQLite.
 class OrderBuilderTab extends StatefulWidget {
   const OrderBuilderTab({super.key});
 
@@ -16,6 +17,10 @@ class OrderBuilderTab extends StatefulWidget {
 class _OrderBuilderTabState extends State<OrderBuilderTab> {
   final TextEditingController _targetCostController =
   TextEditingController(text: '25.00');
+
+  // Tracks the confirmed target cost currently locked in for the order
+  double _activeTargetCost = 25.00;
+  String? _targetInputError;
 
   List<FoodItem> _menuItems = [];
   bool _isLoading = true;
@@ -47,9 +52,72 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
     });
   }
 
-  /// Parses the user-entered target cost per day (defaults to 0.0 if empty/invalid).
-  double get _targetCost {
-    return double.tryParse(_targetCostController.text.trim()) ?? 0.0;
+  /// Parses the raw value currently typed in the Target Cost text field.
+  double? get _parsedInputTargetCost {
+    final text = _targetCostController.text.trim();
+    if (text.isEmpty) return null;
+    return double.tryParse(text);
+  }
+
+  /// Determines whether the 'Set' button should be enabled:
+  /// True only if the typed value is valid (> 0) and differs from _activeTargetCost.
+  bool get _canSetNewTargetCost {
+    final parsed = _parsedInputTargetCost;
+    if (parsed == null || parsed <= 0) return false;
+    return (parsed - _activeTargetCost).abs() > 0.001;
+  }
+
+  /// Validates the text field whenever the user types and updates button state.
+  void _onTargetCostChanged(String value) {
+    final parsed = double.tryParse(value.trim());
+    setState(() {
+      if (value.trim().isEmpty || parsed == null || parsed <= 0) {
+        _targetInputError = 'Enter a target cost greater than \$0.00';
+      } else {
+        _targetInputError = null;
+      }
+    });
+  }
+
+  /// Locks in the new target cost when the user taps the 'Set' button.
+  void _applyTargetCost() {
+    final parsed = _parsedInputTargetCost;
+    if (parsed == null || parsed <= 0) {
+      setState(() {
+        _targetInputError = 'Enter a target cost greater than \$0.00';
+      });
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
+
+    setState(() {
+      _activeTargetCost = double.parse(parsed.toStringAsFixed(2));
+      _targetCostController.text = _activeTargetCost.toStringAsFixed(2);
+      _targetInputError = null;
+
+      if (_currentTotalCost > _activeTargetCost + 0.001) {
+        _budgetWarningMessage =
+        'Selected items (\$${_currentTotalCost.toStringAsFixed(2)}) exceed '
+            'your new target cost (\$${_activeTargetCost.toStringAsFixed(2)}). '
+            'Remove items before saving.';
+      } else {
+        _budgetWarningMessage = null;
+      }
+    });
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            'Target cost set to \$${_activeTargetCost.toStringAsFixed(2)}',
+          ),
+          backgroundColor: AppTheme.espressoBrown,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 
   /// Calculates the total cost of all currently selected food items.
@@ -91,21 +159,19 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
   void _incrementItem(FoodItem item) {
     if (item.id == null) return;
 
-    final double target = _targetCost;
-    if (target <= 0) {
+    if (_activeTargetCost <= 0) {
       _showBudgetExceededAlert(
-        'Please enter a valid target cost greater than \$0.00 first.',
+        'Please set a valid target cost greater than \$0.00 first.',
       );
       return;
     }
 
     final double projectedTotal = _currentTotalCost + item.cost;
-    // Use a tiny epsilon (0.001) to prevent floating-point rounding false positives
-    if (projectedTotal > target + 0.001) {
+    if (projectedTotal > _activeTargetCost + 0.001) {
       _showBudgetExceededAlert(
         'Cannot add "${item.name}" (\$${item.cost.toStringAsFixed(2)}). '
             'Total (\$${projectedTotal.toStringAsFixed(2)}) would exceed your '
-            '\$${target.toStringAsFixed(2)} target cost!',
+            '\$${_activeTargetCost.toStringAsFixed(2)} target cost!',
       );
       return;
     }
@@ -123,11 +189,14 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
     if (currentQty <= 0) return;
 
     setState(() {
-      _budgetWarningMessage = null;
       if (currentQty == 1) {
         _selectedQuantities.remove(item.id!);
       } else {
         _selectedQuantities[item.id!] = currentQty - 1;
+      }
+
+      if (_currentTotalCost <= _activeTargetCost + 0.001) {
+        _budgetWarningMessage = null;
       }
     });
   }
@@ -158,12 +227,67 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
     });
   }
 
-  /// Builds the top control card for Target Cost, Date Picker, and Live Summary.
+  /// Validates and saves the current order plan into the SQLite database.
+  Future<void> _saveOrderPlan() async {
+    final double total = _currentTotalCost;
+
+    if (_activeTargetCost <= 0) {
+      _showBudgetExceededAlert('Set a valid target cost greater than \$0.00 before saving.');
+      return;
+    }
+
+    if (_selectedQuantities.isEmpty) {
+      _showBudgetExceededAlert('Select at least one food item before saving.');
+      return;
+    }
+
+    if (total > _activeTargetCost + 0.001) {
+      _showBudgetExceededAlert(
+        'Total (\$${total.toStringAsFixed(2)}) exceeds target cost '
+            '(\$${_activeTargetCost.toStringAsFixed(2)}). Remove items or raise your target.',
+      );
+      return;
+    }
+
+    final List<FoodItem> chosenItems = [];
+    for (final item in _menuItems) {
+      final int qty = _selectedQuantities[item.id] ?? 0;
+      for (int i = 0; i < qty; i++) {
+        chosenItems.add(item);
+      }
+    }
+
+    final String formattedDate = _formatDate(_selectedDate);
+    final OrderPlan newPlan = OrderPlan(
+      date: formattedDate,
+      targetCost: _activeTargetCost,
+      totalCost: total,
+      items: chosenItems,
+    );
+
+    await DatabaseHelper.instance.insertOrderPlan(newPlan);
+    if (!mounted) return;
+
+    _clearSelections();
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            'Saved order plan for $formattedDate (\$${total.toStringAsFixed(2)})!',
+          ),
+          backgroundColor: Colors.green.shade800,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  /// Builds the top control card for Target Cost + Set Button, Date Picker, and Live Summary.
   Widget _buildOrderControlsCard() {
-    final double target = _targetCost;
     final double current = _currentTotalCost;
-    final double remaining = (target - current).clamp(0.0, double.infinity);
-    final bool isOverCurrentTarget = current > target + 0.001;
+    final double remaining =
+    (_activeTargetCost - current).clamp(0.0, double.infinity);
+    final bool isOverCurrentTarget = current > _activeTargetCost + 0.001;
 
     return Card(
       margin: const EdgeInsets.fromLTRB(12, 12, 12, 6),
@@ -173,10 +297,11 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Target Cost Input
+                // Target Cost Input + Validation
                 Expanded(
-                  flex: 5,
+                  flex: 6,
                   child: TextField(
                     controller: _targetCostController,
                     keyboardType:
@@ -185,34 +310,52 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
                       FilteringTextInputFormatter.allow(
                           RegExp(r'^\d*\.?\d{0,2}')),
                     ],
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Target Cost (\$)',
-                      prefixIcon: Icon(Icons.attach_money),
-                      border: OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.attach_money),
+                      border: const OutlineInputBorder(),
                       isDense: true,
+                      errorText: _targetInputError,
                     ),
-                    onChanged: (_) {
-                      setState(() {
-                        _budgetWarningMessage = null;
-                      });
-                    },
+                    onChanged: _onTargetCostChanged,
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
+                // 'Set' Button (Enabled only when valid > 0 and changed)
+                SizedBox(
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: _canSetNewTargetCost ? _applyTargetCost : null,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                    ),
+                    child: const Text(
+                      'Set',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 // Date Picker Button
                 Expanded(
-                  flex: 6,
-                  child: OutlinedButton.icon(
-                    onPressed: _pickDate,
-                    icon: const Icon(Icons.calendar_today, size: 18),
-                    label: Text(
-                      _formatDate(_selectedDate),
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      side: const BorderSide(color: AppTheme.mapleRed),
-                      foregroundColor: AppTheme.espressoBrown,
+                  flex: 5,
+                  child: SizedBox(
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      onPressed: _pickDate,
+                      icon: const Icon(Icons.calendar_today, size: 16),
+                      label: Text(
+                        _formatDate(_selectedDate),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        side: const BorderSide(color: AppTheme.mapleRed),
+                        foregroundColor: AppTheme.espressoBrown,
+                      ),
                     ),
                   ),
                 ),
@@ -235,14 +378,14 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Selected Total',
+                        'Selected Total / Set Target',
                         style: TextStyle(
                           fontSize: 12,
                           color: AppTheme.espressoBrown,
                         ),
                       ),
                       Text(
-                        '\$${current.toStringAsFixed(2)} / \$${target.toStringAsFixed(2)}',
+                        '\$${current.toStringAsFixed(2)} / \$${_activeTargetCost.toStringAsFixed(2)}',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -286,7 +429,6 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
                 ],
               ),
             ),
-            // Inline Over-Budget Warning Banner
             if (_budgetWarningMessage != null) ...[
               const SizedBox(height: 10),
               Container(
@@ -342,7 +484,7 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
               final FoodItem item = _menuItems[index];
               final int qty = _selectedQuantities[item.id] ?? 0;
               final bool canAffordOneMore =
-                  (_currentTotalCost + item.cost) <= (_targetCost + 0.001);
+                  (_currentTotalCost + item.cost) <= (_activeTargetCost + 0.001);
 
               return Card(
                 margin: const EdgeInsets.symmetric(vertical: 4),
@@ -387,7 +529,6 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
                         color: canAffordOneMore
                             ? AppTheme.mapleRed
                             : Colors.grey.shade400,
-                        // Still clickable when over budget so user receives explicit feedback
                         onPressed: () => _incrementItem(item),
                       ),
                     ],
@@ -395,6 +536,25 @@ class _OrderBuilderTabState extends State<OrderBuilderTab> {
                 ),
               );
             },
+          ),
+        ),
+        // Bottom Save Order Plan Bar
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border(
+              top: BorderSide(color: AppTheme.softSand, width: 1.5),
+            ),
+          ),
+          child: ElevatedButton.icon(
+            onPressed: _saveOrderPlan,
+            icon: const Icon(Icons.save_alt),
+            label: Text(
+              'Save Order Plan (\$${_currentTotalCost.toStringAsFixed(2)})',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
           ),
         ),
       ],
